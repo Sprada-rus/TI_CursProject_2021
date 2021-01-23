@@ -1,0 +1,150 @@
+//---------------------------------------------------------------------------
+#include <jpeg.hpp>
+#include <vcl.h>
+#pragma hdrstop
+#include "RezultInterpol.h"
+#include "MainInterpol.h"
+#include "math.h"
+//---------------------------------------------------------------------------
+#pragma package(smart_init)
+#pragma link "cspin"
+#pragma resource "*.dfm"
+TForm1 *Form1;
+
+
+//Конструктор формы
+__fastcall TForm1::TForm1(TComponent* Owner):TForm(Owner), k(0.0), n(0.0), r(0.0), d(0.0){
+	StringGrid1->Cells[0][0] = " C";
+	StringGrid1->Cells[1][0] = " t";
+	Image1->Picture->LoadFromFile("img\\form.jpg");
+
+}
+
+//Инициализация формы//Опредление кол-ва строк в таблице
+void __fastcall TForm1::CSpinEdit1Change(TObject *Sender)
+{
+	StringGrid1->RowCount = CSpinEdit1->Value + 1;
+}
+
+//Определение обработчика кнопки расчета и построение графиков
+void __fastcall TForm1::BitBtn1Click(TObject *Sender){
+
+	//Инициализация переменных
+	d = 0.0;
+	double count = CSpinEdit1->Value;
+	int i, reg_up(0), reg_down(0);
+	double *y, *x, s1(count - 1.0), s2(0.0), s3(0.0), s4(0.0), s5(0.0), s6(0.0), ca, cb, cc, t;
+
+	//Отчистка графиков
+	Series1->Clear();
+	Series2->Clear();
+	Series3->Clear();
+	Series4->Clear();
+
+	try
+	{
+		y = new double[count];
+		x = new double[count];
+		if (!y || !x) throw "Нет памяти";
+
+		//Начальные значения
+		ca = StringGrid1->Cells[0][1].ToDouble();
+		cb = Edit1->Text.ToDouble();
+		cc = Edit2->Text.ToDouble();
+
+		//Проверка входных данных
+		if(!ca || cb <= 0.0 || cc <= 0.0) throw "Начальные концентрации компонентов должны быть больше 0";
+
+		for (i = 1; i < count - 1; i++) {
+			if(StringGrid1->Cells[0][i].ToDouble() > StringGrid1->Cells[0][i+1].ToDouble())
+				reg_down++;
+			else
+				reg_up++;
+			if(StringGrid1->Cells[0][i].ToDouble() == StringGrid1->Cells[0][i+1].ToDouble())
+				throw "Концентрация в соедних точка должна быть различна";
+			if(StringGrid1->Cells[0][i].ToDouble() >= StringGrid1->Cells[0][i+1].ToDouble())
+				throw "Нарушена последовательность ввода времени";
+			if(StringGrid1->Cells[0][i].ToDouble() < 0 || StringGrid1->Cells[0][i+1].ToDouble() < 0)
+				throw "Время и концентрация не могут быть отрицательными";
+		}
+
+		//Расчет значений локальных переменных
+		for (i = 0; i < count - 1; i++) {
+			y[i] = log(abs(StringGrid1->Cells[0][i+1].ToDouble() - StringGrid1->Cells[0][i+2].ToDouble()));
+			x[i] = log(StringGrid1->Cells[0][i+1].ToDouble());
+
+			s1 += x[i];
+			s3 += y[i];
+			s4 += x[i] * x[i];
+			s5 += x[i] * y[i];
+			s6 += y[i] * y[i];
+		}
+
+		//Расчет константы скорости реакции
+		k = (s3 * s4 - s2 * s5) / (s1 * s4 - s2 * s2);
+		n = (s1 * s5 - s2 * s3) / (s1 * s4 - s2 * s2);
+		r = (s1 * s5 - s2 * s3) / sqrt((s1 * s4 - s2 * s2)) * (s1 * s6 - s3 * s3);
+
+		//Построение графиков и расчет реакции
+		for (i = 1; i <= count ; i++) {
+			Series2->AddXY(StringGrid1->Cells[1][i].ToDouble(), StringGrid1->Cells[0][i].ToDouble());
+
+			if(ca < 0) throw "Модель невозможно линейной регрессией";
+
+			if(i == 1){
+				Series1->AddXY(StringGrid1->Cells[1][i].ToDouble(), ca);
+				Series3->AddXY(StringGrid1->Cells[1][i].ToDouble(), cb);
+				Series4->AddXY(StringGrid1->Cells[1][i].ToDouble(), cc);
+			} else {
+				t = StringGrid1->Cells[1][i].ToDouble() - StringGrid1->Cells[1][i - 1].ToDouble();
+				Series3->AddXY(StringGrid1->Cells[1][i].ToDouble(), cb += k * pow(ca, n) * t);
+				Series4->AddXY(StringGrid1->Cells[1][i].ToDouble(), cc += k * 2 * pow(ca, n) * t);
+				if (reg_down > reg_up) {
+					Series1->AddXY(StringGrid1->Cells[1][i].ToDouble(), ca -= k * pow(ca, n) * t);
+				} else {
+					Series1->AddXY(StringGrid1->Cells[1][i].ToDouble(), ca += k * pow(ca, n) * t);
+				}
+			}
+
+			//Дисперсия
+			d += pow(StringGrid1->Cells[0][i].ToDouble() - ca, 2);
+		}
+		//Создание новой формы
+		//Application->CreateForm(__classid(TForm2), &Form2);
+		//Form2->ShowModal();
+
+		delete[]y;
+        delete[]x;
+	} catch(char *str){
+		MessageBoxW(Application->Handle, (const wchar_t*) str , (const wchar_t*) L"Error", MB_OK);
+		Series1->Clear();
+		Series2->Clear();
+		Series3->Clear();
+		Series4->Clear();
+
+		//Вывод ошибок
+
+	} catch(EConvertError&){
+		MessageBoxW(Application->Handle, (const wchar_t*) L"Не правильный тип данных" , (const wchar_t*)L"Error", MB_OK);
+		delete[]y;
+		delete[]x;
+	} /*catch(...){
+		MessageBoxW(Application->Handle, (const wchar_t*) L"Неизвестная ошибка", (const wchar_t*) L"Error", MB_OK);
+	}   */
+}
+
+
+
+
+
+//---------------------------------------------------------------------------
+
+
+void __fastcall TForm1::BitBtn2Click(TObject *Sender)
+{
+    Form1->Close();
+}
+//---------------------------------------------------------------------------
+
+
+
